@@ -1,0 +1,330 @@
+# config.yaml - Complete Production Configuration
+
+# Database Configuration
+database:
+  type: "sqlite"  # or "sqlite" for development
+  host: "${DB_HOST}"
+  port: 5432
+  name: "${DB_NAME}"
+  user: "${DB_USER}"
+  password: "${DB_PASSWORD}"
+  
+  # Connection pool settings
+  min_connections: 1
+  max_connections: 20
+  
+  # Backup settings
+  backup:
+    enabled: true
+    interval_hours: 24
+    retention_days: 30
+    path: "backups/"
+
+# Scraper Configuration
+scrapers:
+  max_workers: 3
+  timeout: 300
+  delay_between_requests: 2
+  max_retries: 2
+  
+  # Individual scraper configurations
+  sources:
+    inc42:
+      script_path: "inc42-news-pull.py"
+      csv_output: "inc42_news_detailed.csv"
+      source_name: "Inc42"
+      enabled: true
+      timeout: 300
+      schedule: "0 */6 * * *"  # Every 6 hours
+      
+    entrackr:
+      script_path: "entrackr-news-pull.py"
+      csv_output: "entrackr_news_detailed.csv"
+      source_name: "Entrackr"
+      enabled: true
+      timeout: 300
+      schedule: "15 */6 * * *"
+      
+    moneycontrol:
+      script_path: "mc-news-pull.py"
+      csv_output: "moneycontrol_news_detailed.csv"
+      source_name: "Moneycontrol"
+      enabled: true
+      timeout: 300
+      schedule: "30 */6 * * *"
+      
+    startupnews:
+      script_path: "stnfyi-news-pull.py"
+      csv_output: "startupnews_fyi_detailed.csv"
+      source_name: "StartupNews.fyi"
+      enabled: true
+      timeout: 300
+      schedule: "45 */6 * * *"
+      
+    indianstartup:
+      script_path: "ins-news-pull.py"
+      csv_output: "funding_news_detailed.csv"
+      source_name: "IndianStartupNews"
+      enabled: true
+      timeout: 300
+      schedule: "0 */8 * * *"
+
+# AI & Content Analysis
+ai:
+  gemini_api_key: "${GEMINI_API_KEY}"
+  model: "gemini-2.0-flash"
+  enable_content_analysis: true
+  enable_auto_tagging: true
+  enable_summarization: true
+  enable_sentiment_analysis: true
+  
+  # Content quality thresholds
+  quality_thresholds:
+    high: 80
+    medium: 60
+    low: 40
+  
+  # Rate limiting for API calls
+  rate_limit:
+    requests_per_minute: 60
+    requests_per_hour: 3000
+
+# Semantic Deduplication
+deduplication:
+  enabled: true
+  similarity_threshold: 0.85
+  model: 'all-MiniLM-L6-v2'
+  max_comparison_articles: 1000
+  use_semantic_embeddings: true
+  fallback_to_tfidf: true
+  
+  # Caching for performance
+  cache_embeddings: true
+  cache_ttl_hours: 24
+
+# Publishing Configuration
+publishing:
+  # WordPress
+  wordpress:
+    enabled: false
+    endpoint: "${WP_ENDPOINT}/wp-json/wp/v2/posts"
+    auth:
+      username: "${WP_USERNAME}"
+      password: "${WP_APP_PASSWORD}"
+    defaults:
+      status: "draft"
+      category_id: 5
+      author_id: 1
+    
+  # Custom API
+  custom_api:
+    enabled: false
+    endpoint: "${CUSTOM_API_ENDPOINT}/articles"
+    auth:
+      api_key: "${CUSTOM_API_KEY}"
+    defaults:
+      status: "published"
+      custom_headers:
+        X-Source: "news-dashboard"
+    
+  # Ghost CMS
+  ghost:
+    enabled: false
+    endpoint: "${GHOST_ENDPOINT}/ghost/api/v3/admin"
+    auth:
+      api_key: "${GHOST_ADMIN_KEY}"
+    defaults:
+      status: "draft"
+      
+  # Webhook
+  webhook:
+    enabled: false
+    endpoint: "${WEBHOOK_URL}"
+    auth:
+      secret: "${WEBHOOK_SECRET}"
+    defaults:
+      format: "json"
+
+# Caching Configuration
+cache:
+  enabled: true
+  backend: "memory"  # memory, redis, or file
+  ttl_seconds: 300
+  max_size: 1000
+  
+  # Redis configuration (if backend is redis)
+  redis:
+    host: "${REDIS_HOST}"
+    port: 6379
+    password: "${REDIS_PASSWORD}"
+    db: 0
+
+# Logging Configuration
+logging:
+  level: "INFO"
+  file: "logs/news_dashboard.log"
+  max_size_mb: 100
+  backup_count: 5
+  
+  # Separate error logging
+  error_file: "logs/errors.log"
+  
+  # Log rotation
+  rotation:
+    when: "midnight"
+    interval: 1
+    backup_count: 30
+
+# Security Settings
+security:
+  # Input validation
+  max_title_length: 500
+  max_description_length: 2000
+  max_content_length: 50000
+  
+  # Rate limiting
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 100
+    requests_per_hour: 1000
+  
+  # Content filtering
+  content_filters:
+    block_adult_content: true
+    block_spam: true
+    min_quality_score: 30
+
+# Notification Settings
+notifications:
+  email:
+    enabled: false
+    smtp_server: "${SMTP_SERVER}"
+    smtp_port: 587
+    username: "${SMTP_USERNAME}"
+    password: "${SMTP_PASSWORD}"
+    from_email: "${FROM_EMAIL}"
+    to_emails:
+      - "${ADMIN_EMAIL}"
+    
+    # Email triggers
+    triggers:
+      scraper_errors: true
+      high_duplicate_rate: true
+      quality_drop: true
+      
+  slack:
+    enabled: false
+    webhook_url: "${SLACK_WEBHOOK_URL}"
+    channel: "#news-alerts"
+    
+    # Slack triggers
+    triggers:
+      daily_summary: true
+      scraper_failures: true
+      publish_errors: true
+
+# Performance Settings
+performance:
+  # Database query optimization
+  enable_query_caching: true
+  query_cache_size: 1000
+  
+  # Pagination
+  default_page_size: 50
+  max_page_size: 500
+  
+  # Background processing
+  enable_background_tasks: true
+  task_queue_size: 100
+  
+  # Memory management
+  max_memory_usage_mb: 2048
+  gc_threshold: 1000
+
+# Monitoring & Analytics
+monitoring:
+  enabled: true
+  
+  # Metrics collection
+  collect_performance_metrics: true
+  collect_usage_metrics: true
+  collect_error_metrics: true
+  
+  # Health checks
+  health_check_interval: 300  # seconds
+  health_check_endpoints:
+    - database
+    - scrapers
+    - ai_service
+  
+  # Alerts
+  alerts:
+    enabled: true
+    thresholds:
+      error_rate: 0.05  # 5%
+      response_time_ms: 5000
+      memory_usage_percent: 80
+
+# Development Settings
+development:
+  debug: true
+  auto_reload: false
+  enable_profiling: false
+  
+  # Test data
+  enable_test_data: false
+  test_articles_count: 100
+  
+  # Mock services
+  mock_ai_service: false
+  mock_publishers: false
+
+# Feature Flags
+features:
+  enable_ai_analysis: true
+  enable_semantic_deduplication: true
+  enable_auto_publishing: false
+  enable_scheduled_scraping: false
+  enable_content_moderation: true
+  enable_analytics_dashboard: true
+  enable_api_endpoints: false
+  enable_user_management: false
+
+# Environment-specific overrides
+environments:
+  development:
+    database:
+      type: "sqlite"
+      name: "news_dashboard_dev.db"
+    logging:
+      level: "DEBUG"
+    ai:
+      enable_content_analysis: false
+    features:
+      mock_ai_service: true
+      
+  testing:
+    database:
+      type: "sqlite"
+      name: ":memory:"
+    logging:
+      level: "WARNING"
+    features:
+      enable_test_data: true
+      mock_ai_service: true
+      mock_publishers: true
+      
+  production:
+    database:
+      type: "sqlite"
+    logging:
+      level: "INFO"
+    security:
+      rate_limiting:
+        enabled: true
+    monitoring:
+      enabled: true
+
+# Enable or disable debug mode
+debug:
+  enabled: true
