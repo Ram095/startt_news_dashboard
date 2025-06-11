@@ -1541,6 +1541,8 @@ def show_dashboard():
                     help="Publish to configured platforms"
                 ):
                     st.session_state.action = "Publish"
+                    # Store selected article IDs in session state
+                    st.session_state.selected_articles = [article.id for article in articles if st.session_state.get(f"select_{article.id}", False)]
                     show_confirmation_dialog("Publish", selected_count)
                 
                 # Reset
@@ -1551,7 +1553,30 @@ def show_dashboard():
                     help="Reset to 'New' status"
                 ):
                     st.session_state.action = "Reset"
+                    # Store selected article IDs in session state
+                    st.session_state.selected_articles = [article.id for article in articles if st.session_state.get(f"select_{article.id}", False)]
                     show_confirmation_dialog("Reset", selected_count)
+
+    # Handle confirmed actions
+    if 'confirmed' in st.session_state and st.session_state.confirmed:
+        action = st.session_state.get('action')
+        selected_ids = st.session_state.get('selected_articles', [])
+        
+        if action == "Enhance":
+            enhance_articles_with_ai(selected_ids, repository, content_service)
+        elif action == "Approve":
+            update_article_status(selected_ids, ArticleStatus.APPROVED, repository)
+        elif action == "Publish":
+            publish_articles(selected_ids, repository, publisher)
+        elif action == "Reject":
+            update_article_status(selected_ids, ArticleStatus.REJECTED, repository)
+        elif action == "Reset":
+            update_article_status(selected_ids, ArticleStatus.PULLED, repository)
+            
+        del st.session_state.confirmed
+        del st.session_state.action
+        st.session_state.selected_articles = []
+        st.rerun()
 
     # Analytics Tab
     with tabs[2]:
@@ -1835,27 +1860,6 @@ Records: {stats.get('total_articles', 0)} articles
                     'batch_queue_count': len(st.session_state.batch_queue),
                     'user_preferences': st.session_state.user_preferences
                 })
-
-    # Handle confirmed actions
-    if 'confirmed' in st.session_state and st.session_state.confirmed:
-        action = st.session_state.get('action')
-        selected_ids = st.session_state.get('selected_articles', [])
-        
-        if action == "Enhance":
-            enhance_articles_with_ai(selected_ids, repository, content_service)
-        elif action == "Approve":
-            update_article_status(selected_ids, ArticleStatus.APPROVED, repository)
-        elif action == "Publish":
-            publish_articles(selected_ids, repository, publisher)
-        elif action == "Reject":
-            update_article_status(selected_ids, ArticleStatus.REJECTED, repository)
-        elif action == "Reset":
-            update_article_status(selected_ids, ArticleStatus.PULLED, repository)
-            
-        del st.session_state.confirmed
-        del st.session_state.action
-        st.session_state.selected_articles = []
-        st.rerun()
 
     # Enhanced Footer
     st.markdown("---")
