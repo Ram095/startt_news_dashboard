@@ -48,20 +48,53 @@ class ArticleRepository:
             
         # If no duplicates, insert the new article
         self.ui_logger.log("No duplicates found. Proceeding to add article to DB.")
-        last_id = self.add_article(article)
-        if last_id:
-            self.ui_logger.log(f"-> Result: Successfully added article with DB ID {last_id}.")
-            # Assign the new ID back to the article object
-            article.id = last_id
-            # Generate a user-friendly display ID
-            display_id = f"st-n-{last_id}"
-            update_query = "UPDATE articles SET display_id = ? WHERE id = ?"
-            self.db.execute_update(update_query, (display_id, last_id))
-            article.display_id = display_id
-            return True, "success"
-        
-        self.ui_logger.log("-> Result: Database insert failed.")
-        return False, "db_insert_failed"
+        try:
+            query = """
+                INSERT INTO articles (
+                    title, url, source, author, date, category, description,
+                    article_body, status, image_url, quality_score, ai_tags,
+                    ai_summary, sentiment_score, content_hash, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """
+            params = (
+                article.title,
+                article.url,
+                article.source,
+                article.author,
+                article.date,
+                article.category,
+                article.description,
+                article.article_body,
+                article.status.value,
+                article.image_url,
+                article.quality_score,
+                json.dumps(article.ai_tags) if article.ai_tags else None,
+                article.ai_summary,
+                article.sentiment_score,
+                article.content_hash,
+                article.created_at
+            )
+            
+            last_id = self.db.execute_update(query, params)
+            if last_id:
+                self.ui_logger.log(f"-> Result: Successfully added article with DB ID {last_id}.")
+                # Assign the new ID back to the article object
+                article.id = last_id
+                # Generate a user-friendly display ID
+                display_id = f"st-n-{last_id}"
+                update_query = "UPDATE articles SET display_id = ? WHERE id = ?"
+                self.db.execute_update(update_query, (display_id, last_id))
+                article.display_id = display_id
+                self.log_activity("Article Save", f"Saved article: {article.title}")
+                return True, "success"
+            
+            self.ui_logger.log("-> Result: Database insert failed.")
+            return False, "db_insert_failed"
+            
+        except Exception as e:
+            logger.error(f"Error saving article: {e}")
+            self.ui_logger.log(f"-> Result: Error during save: {str(e)}")
+            return False, "db_error"
 
     def get_articles(self, **filters: Any) -> List[Article]:
         """Retrieves articles with flexible filtering."""

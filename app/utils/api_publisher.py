@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime
 import hashlib
+import os
 
 from models.base import Article, PublishResult, PublishStatus
 from repository.repository import ArticleRepository
@@ -206,21 +207,16 @@ class APIPublisher:
         try:
             auth = platform.auth_config
             
-            # Prepare article data
+            # Prepare article data according to the /v1/article endpoint specification
             article_data = {
                 'title': article.title,
-                'content': article.article_body,
                 'description': article.description,
-                'summary': article.ai_summary,
-                'tags': article.ai_tags,
-                'source_url': article.url,
-                'source_name': article.source,
-                'author': article.author,
-                'category': article.category,
-                'published_date': article.date,
-                'quality_score': article.quality_score,
-                'sentiment_score': article.sentiment_score,
-                'status': platform.default_settings.get('status', 'published')
+                'redirect_url': article.url,
+                'source': article.source,
+                'image_url': article.image_url if hasattr(article, 'image_url') else None,
+                'active': True,
+                'category': article.category.lower() if article.category else 'general',
+                'created_at': article.date.isoformat() if article.date else datetime.now().isoformat()
             }
             
             # Set up headers
@@ -230,7 +226,9 @@ class APIPublisher:
             if 'custom_headers' in platform.default_settings:
                 headers.update(platform.default_settings['custom_headers'])
             
-            response = requests.post(platform.endpoint, json=article_data, headers=headers, timeout=30)
+            # Use the backend API URL from environment
+            endpoint = f"{os.getenv('BACKEND_API_URL', '').rstrip('/')}/v1/article"
+            response = requests.post(endpoint, json=article_data, headers=headers, timeout=30)
             
             if response.status_code in [200, 201]:
                 api_response = response.json()

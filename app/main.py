@@ -11,7 +11,7 @@ import requests
 import traceback
 import sqlite3
 import plotly.graph_objects as go
-from streamlit_float import *
+from streamlit_float import float_init, float_css_helper
 import io
 import base64
 import asyncio

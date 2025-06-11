@@ -19,23 +19,23 @@ class PublishStatus(Enum):
 
 @dataclass
 class Article:
-    id: Optional[int] = None
-    display_id: Optional[str] = None
-    title: str = ""
-    url: str = ""
-    source: str = ""
-    author: str = "Unknown"
+    id: int
+    title: str
+    url: str
+    source: str
+    article_body: str
+    description: Optional[str] = None
+    author: Optional[str] = None
     date: Optional[datetime] = None
-    category: str = "News"
-    description: str = ""
-    article_body: str = ""
-    image_url: str = ""
+    category: Optional[str] = None
     status: ArticleStatus = ArticleStatus.PULLED
+    quality_score: Optional[float] = None
+    sentiment_score: Optional[float] = None
+    ai_summary: Optional[str] = None
+    ai_tags: Optional[List[str]] = None
+    image_url: Optional[str] = None
+    display_id: Optional[str] = None
     content_hash: str = ""
-    quality_score: int = 0
-    ai_tags: List[str] = field(default_factory=list)
-    ai_summary: str = ""
-    sentiment_score: float = 0.0
     created_at: datetime = field(default_factory=datetime.now)
     published_at: Optional[datetime] = None
 
