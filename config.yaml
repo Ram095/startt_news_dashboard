@@ -3,6 +3,7 @@
 # Database Configuration
 database:
   type: "sqlite"  # or "sqlite" for development
+  path: "news_database.db"  # Specify the correct database file
   host: "${DB_HOST}"
   port: 5432
   name: "${DB_NAME}"

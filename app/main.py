@@ -14,6 +14,7 @@ import plotly.graph_objects as go
 from streamlit_float import *
 import io
 import base64
+import asyncio
 
 # Import modular components
 from config.settings import Settings
@@ -25,6 +26,8 @@ from utils.api_publisher import APIPublisher
 from models.base import Article, ArticleStatus, ScraperRun
 from database.sqlite_manager import SQLiteManager
 from utils.ui_logger import UILogger
+from auth.firebase_config import initialize_firebase, is_user_logged_in, check_auth_status, logout_user
+from auth.login_page import show_login_page, show_logout_button
 
 logger = logging.getLogger(__name__)
 
@@ -614,8 +617,9 @@ def init_system():
         
         ui_logger = UILogger()
         
-        # Initialize DB
-        db_manager = SQLiteManager("news_database.db")
+        # Get database path from config or use default
+        db_path = config.get("database.path", "news_database.db")
+        db_manager = SQLiteManager(db_path)
         
         # Initialize Repository
         repository = ArticleRepository(db_manager, ui_logger)
@@ -1009,19 +1013,28 @@ def render_article_card(article, index, selected_articles):
 
     return is_selected
 
-# --- Main Application ---
-def main():
-    system_components = init_system()
-    config = system_components['config']
-    repository = system_components['repository']
-    scraper_manager = system_components['scraper_manager']
-    api_publisher = system_components['api_publisher']
-    logger = system_components['logger']
-    ui_logger = system_components['ui_logger']
-    content_service = system_components['content_service']
-
+def show_dashboard():
+    """Show the main dashboard content"""
+    # Initialize system components
+    config = Settings()
+    ui_logger = UILogger()
+    
+    # Initialize database with the correct path
+    db_manager = SQLiteManager("news_database.db")
+    repository = ArticleRepository(db_manager, ui_logger)
+    
+    # Initialize content analysis components
+    analyzer = ContentAnalyzer(config)
+    deduplicator = SemanticDeduplicator(config)
+    content_service = ContentService(repository, analyzer, deduplicator, config)
+    
+    # Initialize scraper manager with required components
+    scraper_manager = ScraperManager(content_service, repository, config._config, ui_logger)
+    publisher = APIPublisher(config._config, repository)
+    
     # Show notifications
     show_notifications()
+
 
     # Theme Toggle in top bar
     with st.container():
@@ -1833,7 +1846,7 @@ Records: {stats.get('total_articles', 0)} articles
         elif action == "Approve":
             update_article_status(selected_ids, ArticleStatus.APPROVED, repository)
         elif action == "Publish":
-            publish_articles(selected_ids, repository, api_publisher)
+            publish_articles(selected_ids, repository, publisher)
         elif action == "Reject":
             update_article_status(selected_ids, ArticleStatus.REJECTED, repository)
         elif action == "Reset":
@@ -1862,6 +1875,31 @@ Records: {stats.get('total_articles', 0)} articles
         unsafe_allow_html=True
     )
 
+def main():
+    """Main function to run the Streamlit app"""
+    # Initialize Firebase
+    initialize_firebase()
+    
+    # Create event loop for async operations
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    try:
+        # Check authentication status
+        is_authenticated = loop.run_until_complete(check_auth_status())
+        
+        if not is_authenticated:
+            show_login_page()
+        else:
+            # Show logout button in sidebar
+            if st.sidebar.button("Logout"):
+                logout_user()
+                st.rerun()
+                
+            # Show main dashboard
+            show_dashboard()
+    finally:
+        loop.close()
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
