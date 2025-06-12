@@ -106,7 +106,6 @@ async def login_user(email: str, password: str) -> bool:
         
         # Get the ID token
         id_token = user['idToken']
-        
         # Verify the token with your backend
         if await verify_token_with_backend(id_token):
             st.session_state['user'] = user

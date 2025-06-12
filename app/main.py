@@ -23,7 +23,7 @@ from services.content_analyzer import ContentAnalyzer, SemanticDeduplicator
 from services.content_service import ContentService
 from services.manager import ScraperManager
 from utils.api_publisher import APIPublisher
-from models.base import Article, ArticleStatus, ScraperRun
+from models.base import Article, ArticleStatus, ScraperRun, PublishStatus
 from database.sqlite_manager import SQLiteManager
 from utils.ui_logger import UILogger
 from auth.firebase_config import initialize_firebase, is_user_logged_in, check_auth_status, logout_user
@@ -704,9 +704,11 @@ def show_confirmation_dialog(action_name: str, item_count: int):
     with col1:
         if st.button("✅ Confirm", use_container_width=True, type="primary"):
             st.session_state.confirmed = True
+            st.rerun()
     with col2:
         if st.button("❌ Cancel", use_container_width=True):
             st.session_state.confirmed = False
+            st.rerun()
 
 @st.dialog("✏️ Bulk Edit Articles", width="large")
 def show_bulk_edit_dialog(article_ids: List[int], _repository: ArticleRepository):
@@ -823,23 +825,57 @@ def enhance_articles_with_ai(article_ids: List[int], _repository: ArticleReposit
     st.cache_data.clear()
 
 def publish_articles(article_ids: List[int], _repository: ArticleRepository, _publisher: APIPublisher):
-    platform = "custom_api"
+    """Publish selected articles"""
+    if not article_ids:
+        st.warning("No articles selected for publishing.")
+        return
+
+    # Get the selected platform
+    platform = st.session_state.get('selected_platform', 'custom_api')
+    
+    # Check if platform is enabled
     if not _publisher.is_platform_enabled(platform):
         add_notification(f"The '{platform}' publishing platform is not enabled", "error")
         return
-
-    with st.spinner(f"🚀 Publishing {len(article_ids)} articles..."):
+    
+    with st.spinner("Publishing articles..."):
         result = _publisher.publish_articles(article_ids, platform)
         
-        success_count = sum(1 for r in result if r['status'] == 'success')
+        # Count successes and failures
+        success_count = sum(1 for r in result if r.status == PublishStatus.SUCCESS)
+        failed_count = sum(1 for r in result if r.status == PublishStatus.FAILED)
+        skipped_count = sum(1 for r in result if r.status == PublishStatus.SKIPPED)
         
+        # Update status for successfully published articles
         if success_count > 0:
-            update_article_status([r['article_id'] for r in result if r['status'] == 'success'], 
-                                ArticleStatus.PUBLISHED, _repository)
+            update_article_status(
+                [r.article_id for r in result if r.status == PublishStatus.SUCCESS],
+                ArticleStatus.PUBLISHED,
+                _repository
+            )
+            st.success(f"✅ Successfully published {success_count} article(s)")
             add_notification(f"Successfully published {success_count} articles!", "success")
         
-        if success_count < len(article_ids):
-            add_notification(f"Failed to publish {len(article_ids) - success_count} articles", "error")
+        if failed_count > 0:
+            st.error(f"❌ Failed to publish {failed_count} article(s)")
+            add_notification(f"Failed to publish {failed_count} articles", "error")
+        
+        if skipped_count > 0:
+            st.warning(f"⚠️ Skipped {skipped_count} article(s) (already published)")
+            add_notification(f"Skipped {skipped_count} articles (already published)", "warning")
+        
+        # Show detailed results
+        for r in result:
+            if r.status == PublishStatus.SUCCESS:
+                st.success(f"✅ Published: {r.article_title}")
+                if r.published_url:
+                    st.write(f"   📎 URL: {r.published_url}")
+            elif r.status == PublishStatus.SKIPPED:
+                st.warning(f"⚠️ Skipped: {r.article_title} - {r.error_message}")
+            else:
+                st.error(f"❌ Failed: {r.article_title}")
+                if r.error_message:
+                    st.write(f"   🚨 Error: {r.error_message}")
 
     time.sleep(1)
     st.cache_data.clear()
@@ -1559,6 +1595,7 @@ def show_dashboard():
 
     # Handle confirmed actions
     if 'confirmed' in st.session_state and st.session_state.confirmed:
+        print("Confirmed")
         action = st.session_state.get('action')
         selected_ids = st.session_state.get('selected_articles', [])
         
@@ -1567,6 +1604,7 @@ def show_dashboard():
         elif action == "Approve":
             update_article_status(selected_ids, ArticleStatus.APPROVED, repository)
         elif action == "Publish":
+            print("Publishing")
             publish_articles(selected_ids, repository, publisher)
         elif action == "Reject":
             update_article_status(selected_ids, ArticleStatus.REJECTED, repository)

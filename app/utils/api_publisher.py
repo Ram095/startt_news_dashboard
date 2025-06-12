@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import hashlib
 import os
+import streamlit as st
 
 from models.base import Article, PublishResult, PublishStatus
 from repository.repository import ArticleRepository
@@ -23,6 +24,17 @@ class PublishingPlatform:
     auth_config: Dict[str, str]
     default_settings: Dict[str, Any]
 
+@dataclass
+class PublishResult:
+    status: PublishStatus
+    article_id: int
+    article_title: str
+    platform: str
+    external_id: Optional[str] = None
+    error_message: Optional[str] = None
+    retry_count: int = 0
+    published_url: Optional[str] = None
+
 class APIPublisher:
     def __init__(self, config: Dict[str, Any], repository: ArticleRepository):
         self.config = config
@@ -35,7 +47,6 @@ class APIPublisher:
         """Load publishing platform configurations"""
         platforms = {}
         publishing_config = self.config.get('publishing', {})
-        
         for platform_name, platform_config in publishing_config.items():
             if platform_config.get('enabled', False):
                 platforms[platform_name] = PublishingPlatform(
@@ -48,62 +59,59 @@ class APIPublisher:
         
         return platforms
     
-    def publish_articles(self, article_ids: List[int], platform_name: str) -> List[PublishResult]:
+    def is_platform_enabled(self, platform: str) -> bool:
+        """Checks if a given publishing platform is enabled in the config."""
+        return self.config.get('publishing', {}).get(platform, {}).get('enabled', False)
+
+    def publish_articles(self, article_ids: List[int], platform: str) -> List[PublishResult]:
         """Publish multiple articles to specified platform"""
-        if platform_name not in self.platforms:
-            return [PublishResult(
-                article_id=aid,
-                platform=platform_name,
-                status=PublishStatus.FAILED,
-                error_message=f"Platform {platform_name} not configured or disabled"
-            ) for aid in article_ids]
-        
-        platform = self.platforms[platform_name]
+        if not self.is_platform_enabled(platform):
+            logger.warning(f"Publishing platform '{platform}' is not enabled.")
+            return []
+
         results = []
-        
-        # Get articles from database
-        articles = []
         for article_id in article_ids:
-            article = self._get_article_by_id(article_id)
+            article = self.repository.get_article_by_id(article_id)
+            print(f"Article: {article}")
             if article:
-                articles.append(article)
-        
-        for article in articles:
-            result = self._publish_single_article(article, platform)
-            results.append(result)
-            
-            # Log result to database
-            self.repository.log_publish_result(result)
-            
-            # Add delay between requests
-            time.sleep(1)
-        
+                result = self._publish_single_article(article, platform)
+                results.append(result)
+                # Log the outcome
+                status = "success" if result.status == PublishStatus.SUCCESS else "error"
+                details = f"Published to {platform}."
+                if result.error_message:
+                    details += f" Error: {result.error_message}"
+                self.repository.log_activity("Article Publish", details, status)
+            else:
+                logger.warning(f"Could not find article with ID {article_id} to publish.")
         return results
     
-    def _publish_single_article(self, article: Article, platform: PublishingPlatform) -> PublishResult:
+    def _publish_single_article(self, article: Article, platform: str) -> PublishResult:
         """Publish a single article with retry logic"""
+        platform_config = self.platforms[platform]
         for attempt in range(self.max_retries + 1):
             try:
-                logger.info(f"Publishing article {article.id} to {platform.name} (attempt {attempt + 1})")
+                logger.info(f"Publishing article {article.id} to {platform} (attempt {attempt + 1})")
                 
-                if platform.name == 'wordpress':
-                    result = self._publish_to_wordpress(article, platform)
-                elif platform.name == 'custom_api':
-                    result = self._publish_to_custom_api(article, platform)
-                elif platform.name == 'ghost':
-                    result = self._publish_to_ghost(article, platform)
-                elif platform.name == 'webhook':
-                    result = self._publish_to_webhook(article, platform)
+                if platform == 'wordpress':
+                    result = self._publish_to_wordpress(article, platform_config)
+                elif platform == 'custom_api':
+                    result = self._publish_to_custom_api(article, platform_config)
+                elif platform == 'ghost':
+                    result = self._publish_to_ghost(article, platform_config)
+                elif platform == 'webhook':
+                    result = self._publish_to_webhook(article, platform_config)
                 else:
                     return PublishResult(
                         article_id=article.id,
-                        platform=platform.name,
+                        article_title=article.title,
+                        platform=platform,
                         status=PublishStatus.FAILED,
-                        error_message=f"Unknown platform type: {platform.name}"
+                        error_message=f"Unknown platform type: {platform}"
                     )
                 
                 if result.status == PublishStatus.SUCCESS:
-                    logger.info(f"Successfully published article {article.id} to {platform.name}")
+                    logger.info(f"Successfully published article {article.id} to {platform}")
                     return result
                 elif result.status == PublishStatus.FAILED and attempt < self.max_retries:
                     logger.warning(f"Attempt {attempt + 1} failed for article {article.id}: {result.error_message}")
@@ -119,7 +127,8 @@ class APIPublisher:
                 else:
                     return PublishResult(
                         article_id=article.id,
-                        platform=platform.name,
+                        article_title=article.title,
+                        platform=platform,
                         status=PublishStatus.FAILED,
                         error_message=str(e),
                         retry_count=attempt + 1
@@ -127,7 +136,8 @@ class APIPublisher:
         
         return PublishResult(
             article_id=article.id,
-            platform=platform.name,
+            article_title=article.title,
+            platform=platform,
             status=PublishStatus.FAILED,
             error_message="Max retries exceeded"
         )
@@ -170,6 +180,7 @@ class APIPublisher:
             else:
                 return PublishResult(
                     article_id=article.id,
+                    article_title=article.title,
                     platform=platform.name,
                     status=PublishStatus.FAILED,
                     error_message="No valid authentication configured"
@@ -181,6 +192,7 @@ class APIPublisher:
                 wp_post = response.json()
                 return PublishResult(
                     article_id=article.id,
+                    article_title=article.title,
                     platform=platform.name,
                     status=PublishStatus.SUCCESS,
                     external_id=str(wp_post.get('id')),
@@ -189,6 +201,7 @@ class APIPublisher:
             else:
                 return PublishResult(
                     article_id=article.id,
+                    article_title=article.title,
                     platform=platform.name,
                     status=PublishStatus.FAILED,
                     error_message=f"HTTP {response.status_code}: {response.text[:200]}"
@@ -197,6 +210,7 @@ class APIPublisher:
         except Exception as e:
             return PublishResult(
                 article_id=article.id,
+                article_title=article.title,
                 platform=platform.name,
                 status=PublishStatus.FAILED,
                 error_message=str(e)
@@ -206,7 +220,7 @@ class APIPublisher:
         """Publish to custom API"""
         try:
             auth = platform.auth_config
-            
+                
             # Prepare article data according to the /v1/article endpoint specification
             article_data = {
                 'title': article.title,
@@ -222,34 +236,51 @@ class APIPublisher:
             # Set up headers
             headers = {'Content-Type': 'application/json'}
             if 'api_key' in auth:
-                headers['Authorization'] = f'Bearer {auth["api_key"]}'
+                if 'id_token' in st.session_state:
+                    headers['Authorization'] = f"Bearer {st.session_state['id_token']}"
+                else:
+                    headers['Authorization'] = f"Bearer {auth['api_key']}"
             if 'custom_headers' in platform.default_settings:
                 headers.update(platform.default_settings['custom_headers'])
             
+            
             # Use the backend API URL from environment
             endpoint = f"{os.getenv('BACKEND_API_URL', '').rstrip('/')}/v1/article"
+            
             response = requests.post(endpoint, json=article_data, headers=headers, timeout=30)
             
             if response.status_code in [200, 201]:
                 api_response = response.json()
                 return PublishResult(
                     article_id=article.id,
+                    article_title=article.title,
                     platform=platform.name,
                     status=PublishStatus.SUCCESS,
                     external_id=str(api_response.get('id', '')),
                     published_url=api_response.get('url', '')
                 )
-            else:
+            elif response.status_code == 409:
                 return PublishResult(
                     article_id=article.id,
+                    article_title=article.title,
+                    platform=platform.name,
+                    status=PublishStatus.SKIPPED,
+                    error_message="Article has already been published"
+                )
+            else:
+                error_msg = f"HTTP {response.status_code}: {response.text[:200]}"
+                return PublishResult(
+                    article_id=article.id,
+                    article_title=article.title,
                     platform=platform.name,
                     status=PublishStatus.FAILED,
-                    error_message=f"HTTP {response.status_code}: {response.text[:200]}"
+                    error_message=error_msg
                 )
                 
         except Exception as e:
             return PublishResult(
                 article_id=article.id,
+                article_title=article.title,
                 platform=platform.name,
                 status=PublishStatus.FAILED,
                 error_message=str(e)
@@ -262,6 +293,7 @@ class APIPublisher:
             # This is a placeholder for Ghost-specific publishing logic
             return PublishResult(
                 article_id=article.id,
+                article_title=article.title,
                 platform=platform.name,
                 status=PublishStatus.SKIPPED,
                 error_message="Ghost publishing not implemented yet"
@@ -269,6 +301,7 @@ class APIPublisher:
         except Exception as e:
             return PublishResult(
                 article_id=article.id,
+                article_title=article.title,
                 platform=platform.name,
                 status=PublishStatus.FAILED,
                 error_message=str(e)
@@ -310,6 +343,7 @@ class APIPublisher:
             if response.status_code in [200, 201, 202]:
                 return PublishResult(
                     article_id=article.id,
+                    article_title=article.title,
                     platform=platform.name,
                     status=PublishStatus.SUCCESS,
                     external_id=f"webhook_{int(time.time())}"
@@ -317,6 +351,7 @@ class APIPublisher:
             else:
                 return PublishResult(
                     article_id=article.id,
+                    article_title=article.title,
                     platform=platform.name,
                     status=PublishStatus.FAILED,
                     error_message=f"HTTP {response.status_code}: {response.text[:200]}"
@@ -325,6 +360,7 @@ class APIPublisher:
         except Exception as e:
             return PublishResult(
                 article_id=article.id,
+                article_title=article.title,
                 platform=platform.name,
                 status=PublishStatus.FAILED,
                 error_message=str(e)

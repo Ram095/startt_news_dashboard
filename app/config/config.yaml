@@ -118,7 +118,7 @@ publishing:
     
   # Custom API
   custom_api:
-    enabled: false
+    enabled: true
     endpoint: "${CUSTOM_API_ENDPOINT}/articles"
     auth:
       api_key: "${CUSTOM_API_KEY}"
