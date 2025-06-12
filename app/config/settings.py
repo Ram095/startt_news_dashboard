@@ -5,11 +5,18 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 class Settings:
-    def __init__(self, config_path: str = "config.yaml"):
+    def __init__(self, config_path: str = None):
         # Load environment variables from .env file first
         load_dotenv()
         
-        self.config_path = config_path
+        if config_path:
+            self.config_path = config_path
+        else:
+            # Build an absolute path to the config file from the project root
+            # Assumes this file is in app/config/settings.py
+            self.project_root = Path(__file__).resolve().parent.parent.parent
+            self.config_path = self.project_root / "config.yaml"
+        
         self._config = self._load_config()
     
     def _load_config(self) -> Dict[str, Any]:
@@ -23,9 +30,27 @@ class Settings:
                 config_content = config_content.replace(f"${{{key}}}", value)
                 config_content = config_content.replace(f"${key}", value)
             
-            return yaml.safe_load(config_content)
+            base_config = yaml.safe_load(config_content)
+            
+            # Deep merge environment-specific configuration
+            env = os.getenv("APP_ENV", "development")
+            if "environments" in base_config and env in base_config["environments"]:
+                env_config = base_config["environments"][env]
+                return self._deep_merge(base_config, env_config)
+            
+            return base_config
         except FileNotFoundError:
+            print(f"ERROR: Configuration file not found at {self.config_path}. Please ensure it exists.")
             return self._default_config()
+    
+    def _deep_merge(self, base: Dict, override: Dict) -> Dict:
+        """Deep merge two dictionaries."""
+        for key, value in override.items():
+            if isinstance(value, dict) and key in base and isinstance(base[key], dict):
+                base[key] = self._deep_merge(base[key], value)
+            else:
+                base[key] = value
+        return base
     
     def _default_config(self) -> Dict[str, Any]:
         """Default configuration"""
@@ -58,6 +83,10 @@ class Settings:
                 'file': 'logs/news_dashboard.log'
             }
         }
+    
+    def get_project_root(self) -> Path:
+        """Returns the calculated project root directory."""
+        return self.project_root
     
     def get(self, path: str, default: Any = None) -> Any:
         """

@@ -54,11 +54,23 @@ class ScraperManager:
             return create_error_result(f"Scraper script not found at {script_path}")
 
         try:
+            # Ensure output directory exists
+            output_csv_path = config.get('csv_output')
+            if output_csv_path:
+                output_dir = os.path.dirname(output_csv_path)
+                if output_dir:
+                    os.makedirs(output_dir, exist_ok=True)
+
             # Run the scraper script as a subprocess
             env = os.environ.copy()
             env["PYTHONIOENCODING"] = "utf-8"
+            
+            command = [sys.executable, script_path]
+            if output_csv_path:
+                command.extend(["--output", output_csv_path])
+
             result = subprocess.run(
-                [sys.executable, script_path],
+                command,
                 capture_output=True, text=True, timeout=config.get('timeout', 300),
                 encoding='utf-8', errors='replace', env=env
             )
