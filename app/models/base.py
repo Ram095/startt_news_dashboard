@@ -39,6 +39,47 @@ class Article:
     created_at: datetime = field(default_factory=datetime.now)
     published_at: Optional[datetime] = None
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert Article object to a dictionary for serialization"""
+        return {
+            'id': self.id,
+            'title': self.title,
+            'url': self.url,
+            'source': self.source,
+            'article_body': self.article_body,
+            'description': self.description,
+            'author': self.author,
+            'date': self.date.isoformat() if self.date else None,
+            'category': self.category,
+            'status': self.status.value,
+            'quality_score': self.quality_score,
+            'sentiment_score': self.sentiment_score,
+            'ai_summary': self.ai_summary,
+            'ai_tags': self.ai_tags,
+            'image_url': self.image_url,
+            'display_id': self.display_id,
+            'content_hash': self.content_hash,
+            'created_at': self.created_at.isoformat() if self.created_at else None,
+            'published_at': self.published_at.isoformat() if self.published_at else None
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Article':
+        """Create an Article object from a dictionary"""
+        # Convert string dates back to datetime objects
+        if data.get('date'):
+            data['date'] = datetime.fromisoformat(data['date'])
+        if data.get('created_at'):
+            data['created_at'] = datetime.fromisoformat(data['created_at'])
+        if data.get('published_at'):
+            data['published_at'] = datetime.fromisoformat(data['published_at'])
+        
+        # Convert status string back to enum
+        if data.get('status'):
+            data['status'] = ArticleStatus(data['status'])
+        
+        return cls(**data)
+
 @dataclass
 class ScraperRun:
     scraper_name: str

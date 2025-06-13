@@ -400,3 +400,25 @@ class ArticleRepository:
         except Exception as e:
             logger.error(f"Error updating article analysis for ID {article_id}: {e}")
             return False
+
+    def update_article_description(self, article_id: int, new_description: str) -> bool:
+        """Updates the description of a single article."""
+        try:
+            query = "UPDATE articles SET description = ? WHERE id = ?"
+            self.db.execute_update(query, (new_description, article_id))
+            self.log_activity("Article Edit", f"Updated description for article ID {article_id}.")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating article description for ID {article_id}: {e}")
+            return False
+
+    def update_article_ai_summary(self, article_id: int, new_summary: str) -> bool:
+        """Updates the AI summary of a single article."""
+        try:
+            query = "UPDATE articles SET ai_summary = ? WHERE id = ?"
+            self.db.execute_update(query, (new_summary, article_id))
+            self.log_activity("Article Edit", f"Updated AI summary for article ID {article_id}.")
+            return True
+        except Exception as e:
+            logger.error(f"Error updating AI summary for ID {article_id}: {e}")
+            return False

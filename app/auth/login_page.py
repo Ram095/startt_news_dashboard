@@ -2,7 +2,7 @@ import streamlit as st
 import asyncio
 from .firebase_config import login_user, signup_user, logout_user, is_user_logged_in
 
-def show_login_page():
+async def show_login_page():
     """Show the login page"""
     # Center the login form
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -23,17 +23,13 @@ def show_login_page():
                 # Create a placeholder for the spinner
                 with st.spinner("Logging in..."):
                     # Run the async login function
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        success = loop.run_until_complete(login_user(email, password))
-                        if success:
-                            st.success("Login successful!")
-                            st.rerun()
-                        else:
-                            st.error("Login failed. Please check your credentials.")
-                    finally:
-                        loop.close()
+                    success = await login_user(email, password)
+                    if success:
+                        st.success("Login successful!")
+                        st.session_state.logged_in = True
+                        st.rerun()
+                    else:
+                        st.error("Login failed. Please check your credentials.")
 
     # Commented out signup section
     """
@@ -56,17 +52,12 @@ def show_login_page():
                 # Create a placeholder for the spinner
                 with st.spinner("Creating account..."):
                     # Run the async signup function
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        success = loop.run_until_complete(signup_user(email, password))
-                        if success:
-                            st.success("Account created successfully!")
-                            st.rerun()
-                        else:
-                            st.error("Signup failed. Please try again.")
-                    finally:
-                        loop.close()
+                    success = await signup_user(email, password)
+                    if success:
+                        st.success("Account created successfully!")
+                        st.rerun()
+                    else:
+                        st.error("Signup failed. Please try again.")
     """
 
 def show_logout_button():

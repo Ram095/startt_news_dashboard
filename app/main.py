@@ -405,6 +405,40 @@ common_css = """
                 gap: 8px;
             }
             
+            /* Radio buttons styled as tabs */
+            div[role="radiogroup"] {
+                display: flex;
+                gap: 8px;
+                border-bottom: 2px solid var(--border-color);
+                margin-bottom: 24px;
+                padding: 0;
+            }
+            div[role="radiogroup"] label {
+                padding: 12px 18px;
+                cursor: pointer;
+                border-radius: 8px 8px 0 0;
+                border: 2px solid transparent;
+                border-bottom: none;
+                position: relative;
+                bottom: -2px;
+                transition: all 0.2s ease;
+                font-weight: 600;
+                color: var(--text-secondary);
+            }
+            div[role="radiogroup"] label:hover {
+                background-color: var(--surface-hover);
+                color: var(--text-primary);
+            }
+            div[role="radiogroup"] input[type="radio"]:checked + div {
+                color: var(--primary-color);
+            }
+            div[role="radiogroup"] label:has(input[type="radio"]:checked) {
+                border-color: var(--border-color);
+                background-color: var(--surface);
+                color: var(--text-primary);
+                border-bottom: 2px solid var(--surface);
+            }
+            
             /* Notification System */
             .notification {
                 position: fixed;
@@ -617,9 +651,15 @@ def init_system():
         
         ui_logger = UILogger()
         
-        # Get database path from config or use default
-        db_path = config.get("database.path", "news_database.db")
+        # Get database path from config and make it absolute
+        relative_db_path = config.get("database.path", "news_database.db")
+        project_root = config.get_project_root()
+        db_path = project_root / relative_db_path
+        
         db_manager = SQLiteManager(db_path)
+        
+        # Run the diagnostic test
+        test_database_connection(db_manager)
         
         # Initialize Repository
         repository = ArticleRepository(db_manager, ui_logger)
@@ -651,6 +691,40 @@ def init_system():
         st.error(f"Fatal error during system initialization: {e}")
         st.stop()
 
+def test_database_connection(db_manager: SQLiteManager):
+    """Connects to the DB, logs the path, and counts articles for diagnostics."""
+    logger.info("--- DATABASE DIAGNOSTIC START ---")
+    try:
+        db_path = db_manager.db_path
+        logger.info(f"Attempting to connect to database at resolved absolute path: {db_path}")
+
+        if not os.path.exists(db_path):
+            logger.error(f"DIAGNOSTIC FAILED: Database file does not exist at {db_path}")
+            logger.info("--- DATABASE DIAGNOSTIC END ---")
+            return
+
+        with db_manager.get_connection() as conn:
+            cursor = conn.cursor()
+            logger.info("DIAGNOSTIC: Successfully established connection.")
+
+            # Check for articles table
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='articles';")
+            if cursor.fetchone() is None:
+                logger.warning("DIAGNOSTIC: The 'articles' table does not exist in the database.")
+            else:
+                logger.info("DIAGNOSTIC: The 'articles' table exists.")
+                # Count articles
+                cursor.execute("SELECT COUNT(*) FROM articles;")
+                count = cursor.fetchone()[0]
+                logger.info(f"DIAGNOSTIC: Found {count} articles in the 'articles' table.")
+
+            logger.info("--- DATABASE DIAGNOSTIC END ---")
+
+    except Exception as e:
+        logger.error(f"DIAGNOSTIC FAILED: An exception occurred during database test: {e}")
+        logger.error(traceback.format_exc())
+        logger.info("--- DATABASE DIAGNOSTIC END ---")
+
 # Initialize float layout for sticky elements
 float_init()
 
@@ -673,7 +747,9 @@ def load_dashboard_data(_repository: ArticleRepository):
 
 @st.cache_data(ttl=30)
 def load_articles(_repository: ArticleRepository, filters: Dict[str, Any]):
-    return _repository.get_articles(**filters)
+    articles = _repository.get_articles(**filters)
+    # Convert Article objects to dictionaries for caching
+    return [article.to_dict() for article in articles]
 
 @st.cache_data(ttl=300)
 def load_activity_logs(_repository: ArticleRepository, limit: int = 100):
@@ -689,11 +765,11 @@ def update_article_status(article_ids: List[int], status: ArticleStatus, _reposi
     else:
         add_notification("Failed to update article status", "error")
 
-@st.dialog("⚡ Confirm Action", width="small")
 def show_confirmation_dialog(action_name: str, item_count: int):
     st.markdown(f"""
     <div style="text-align: center; padding: 20px;">
-        <h3 style="color: var(--text-primary);">Are you sure?</h3>
+        <h3 style="color: var(--text-primary);">⚡ Confirm Action</h3>
+        <h4 style="color: var(--text-secondary); font-weight: normal; margin-top: 1em;">Are you sure?</h4>
         <p style="font-size: 16px; color: var(--text-secondary); margin: 20px 0;">
             You're about to <strong>{action_name}</strong> {item_count} selected article{'s' if item_count > 1 else ''}.
         </p>
@@ -704,15 +780,19 @@ def show_confirmation_dialog(action_name: str, item_count: int):
     with col1:
         if st.button("✅ Confirm", use_container_width=True, type="primary"):
             st.session_state.confirmed = True
+            if 'dialog' in st.session_state:
+                del st.session_state.dialog
             st.rerun()
     with col2:
         if st.button("❌ Cancel", use_container_width=True):
             st.session_state.confirmed = False
+            if 'dialog' in st.session_state:
+                del st.session_state.dialog
             st.rerun()
 
-@st.dialog("✏️ Bulk Edit Articles", width="large")
 def show_bulk_edit_dialog(article_ids: List[int], _repository: ArticleRepository):
-    st.subheader(f"Editing {len(article_ids)} Articles")
+    st.subheader("✏️ Bulk Edit Articles")
+    st.markdown(f"Editing **{len(article_ids)}** articles.")
     
     # Bulk edit options
     col1, col2 = st.columns(2)
@@ -759,8 +839,13 @@ def show_bulk_edit_dialog(article_ids: List[int], _repository: ArticleRepository
                         changes_made += 1
             
             add_notification(f"Applied bulk changes to {changes_made} articles", "success")
+            if 'dialog' in st.session_state:
+                del st.session_state.dialog
+            st.rerun()
     with col2:
         if st.button("❌ Cancel", use_container_width=True):
+            if 'dialog' in st.session_state:
+                del st.session_state.dialog
             st.rerun()
 
 def enhance_articles_with_ai(article_ids: List[int], _repository: ArticleRepository, _content_service: ContentService):
@@ -950,24 +1035,38 @@ def get_article_activity(_db_path: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 def clear_scraper_caches(config: Settings) -> List[str]:
-    """Deletes the 'seen_urls.json' files for all configured scrapers."""
+    """Deletes the 'seen_urls.json' files for all configured scrapers from the 'data' directory."""
     deleted_files = []
     scraper_configs = config.get('scrapers', {}).get('sources', {})
     
-    for scraper_name, conf in scraper_configs.items():
-        script_path = conf.get('script_path', '')
-        if not script_path:
-            continue
-            
-        cache_filename = f"{os.path.splitext(os.path.basename(script_path))[0].replace('-news-pull', '')}_seen_urls.json"
-        cache_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), cache_filename)
-        
+    # Define the base directory for scraper data
+    data_dir = "data"
+    
+    cache_files = [
+        "entrackr_seen_urls.json",
+        "inc42_seen_urls.json",
+        "ins_seen_urls.json",
+        "moneycontrol_seen_urls.json",
+        "startupnews_fyi_seen_urls.json"
+    ]
+
+    for scraper_name in scraper_configs.keys():
+        # This is a bit of a simplification, we assume the seen file name can be derived
+        # or we just try to delete all known ones.
+        # A more robust solution would be to store the seen_urls filename in the config as well.
+        pass # The logic below handles the known files
+
+    for filename in cache_files:
+        cache_path = os.path.join(data_dir, filename)
         if os.path.exists(cache_path):
             try:
                 os.remove(cache_path)
+                # We report the scraper name based on the filename convention
+                scraper_name = filename.split('_')[0]
                 deleted_files.append(scraper_name)
                 logger.info(f"Removed cache file: {cache_path}")
             except Exception as e:
+                scraper_name = filename.split('_')[0]
                 logger.error(f"Failed to remove cache file {cache_path}: {e}")
                 add_notification(f"Could not delete cache for {scraper_name}", "error")
                 
@@ -1023,7 +1122,7 @@ def render_article_card(article, index, selected_articles):
         st.write(summary[:300] + "..." if len(summary) > 300 else summary)
     
     # Action buttons
-    col1, col2, col3 = st.columns([1, 1, 2])
+    col1, col2, col3, col4 = st.columns([1, 1, 1, 2])
     
     with col1:
         if article.url and st.button("🔗 Source", key=f"source_{article.id}"):
@@ -1033,6 +1132,37 @@ def render_article_card(article, index, selected_articles):
         if st.button("👁️ Preview", key=f"preview_{article.id}"):
             st.session_state[f"show_preview_{article.id}"] = True
     
+    with col3:
+        if st.button("📝 Edit", key=f"edit_{article.id}"):
+            st.session_state[f"edit_mode_{article.id}"] = not st.session_state.get(f"edit_mode_{article.id}", False)
+            st.rerun()
+
+    # Edit mode UI
+    if st.session_state.get(f"edit_mode_{article.id}", False):
+        with st.container():
+            st.markdown("---")
+            new_ai_summary = st.text_area(
+                "Edit AI Summary",
+                value=article.ai_summary or "",
+                key=f"ai_summary_edit_{article.id}",
+                height=150
+            )
+
+            save_col, cancel_col, _ = st.columns([1,1,4])
+            with save_col:
+                if st.button("💾 Save", key=f"save_edit_{article.id}", type="primary"):
+                    st.session_state.update_article_data = {
+                        "id": article.id,
+                        "ai_summary": new_ai_summary
+                    }
+                    st.session_state[f"edit_mode_{article.id}"] = False
+                    st.rerun()
+
+            with cancel_col:
+                if st.button("❌ Cancel", key=f"cancel_edit_{article.id}"):
+                    st.session_state[f"edit_mode_{article.id}"] = False
+                    st.rerun()
+
     # Show preview if requested
     if st.session_state.get(f"show_preview_{article.id}", False):
         with st.expander("📖 Article Preview", expanded=True):
@@ -1049,46 +1179,74 @@ def render_article_card(article, index, selected_articles):
 
     return is_selected
 
-def show_dashboard():
+def get_svg_with_height(svg_content: str, height: int):
+    """Modify SVG to have a specific height."""
+    import re
+    svg_content = re.sub(r'width="[^"]+"', '', svg_content)
+    svg_content = re.sub(r'height="[^"]+"', '', svg_content)
+    return svg_content.replace('<svg', f'<svg height="{height}"')
+
+def render_svg(svg_file, height=30):
+    """Renders an SVG file in the app."""
+    try:
+        with open(svg_file, "r") as f:
+            svg_content = f.read()
+        
+        # Modify height and encode
+        svg_content_resized = get_svg_with_height(svg_content, height)
+        b64 = base64.b64encode(svg_content_resized.encode("utf-8")).decode("utf-8")
+        
+        # CSS for alignment and styling
+        st.markdown(
+            f"""
+            <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                <a href="#" target="_blank">
+                    <img src="data:image/svg+xml;base64,{b64}" style="filter: invert(var(--logo-invert, 0));">
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    except FileNotFoundError:
+        st.warning(f"Logo file not found at {svg_file}")
+    except Exception as e:
+        st.error(f"Error rendering SVG: {e}")
+
+def show_dashboard(system_components: Dict[str, Any]):
     """Show the main dashboard content"""
-    # Initialize system components
-    config = Settings()
-    ui_logger = UILogger()
-    
-    # Initialize database with the correct path
-    db_manager = SQLiteManager("news_database.db")
-    repository = ArticleRepository(db_manager, ui_logger)
-    
-    # Initialize content analysis components
-    analyzer = ContentAnalyzer(config)
-    deduplicator = SemanticDeduplicator(config)
-    content_service = ContentService(repository, analyzer, deduplicator, config)
-    
-    # Initialize scraper manager with required components
-    scraper_manager = ScraperManager(content_service, repository, config._config, ui_logger)
-    publisher = APIPublisher(config._config, repository)
+    # Unpack system components
+    config = system_components['config']
+    repository = system_components['repository']
+    content_service = system_components['content_service']
+    scraper_manager = system_components['scraper_manager']
+    publisher = system_components['api_publisher']
+    ui_logger = system_components['ui_logger']
     
     # Show notifications
     show_notifications()
 
+    # Dialog router
+    if 'dialog' in st.session_state and st.session_state.dialog:
+        dialog_info = st.session_state.dialog
+        if dialog_info['name'] == 'confirm':
+            show_confirmation_dialog(**dialog_info['props'])
+        elif dialog_info['name'] == 'bulk_edit':
+            show_bulk_edit_dialog(repository=repository, **dialog_info['props'])
+        return
 
     # Theme Toggle in top bar
     with st.container():
         col1, col2, col3 = st.columns([6, 1, 1])
         
+        with col1:
+            logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets", "logo.svg")
+            render_svg(logo_path, height=40)
+
         with col2:
             if st.button("🌓", help="Toggle theme", key="theme_toggle"):
                 st.session_state.dark_mode = not st.session_state.dark_mode
                 st.rerun()
         
-        with col3:
-            # Performance indicator
-            perf_metrics = get_performance_metrics()
-            st.markdown(f"""
-            <div class="perf-metric">
-                ⚡ {perf_metrics['success_rate']:.1f}%
-            </div>
-            """, unsafe_allow_html=True)
 
     # Enhanced Sidebar
     with st.sidebar:
@@ -1280,15 +1438,22 @@ def show_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
-    # Enhanced Tabs
-    tab_list = ["📊 Dashboard", "📰 Articles", "📈 Analytics", "⚙️ Settings"]
-    if config.is_debug_mode_enabled():
-        tab_list.insert(3, "🐞 Debug")
+    # Initialize active_tab in session state
+    if 'active_tab' not in st.session_state:
+        st.session_state.active_tab = ["📊 Dashboard", "📰 Articles", "📈 Analytics", "⚙️ Settings"][0]
 
-    tabs = st.tabs(tab_list)
+    # Use radio buttons for tab navigation
+    st.session_state.active_tab = st.radio(
+        "Main navigation",
+        ["📊 Dashboard", "📰 Articles", "📈 Analytics", "⚙️ Settings"],
+        key="main_tabs",
+        horizontal=True,
+        label_visibility="collapsed",
+        index=["📊 Dashboard", "📰 Articles", "📈 Analytics", "⚙️ Settings"].index(st.session_state.active_tab)
+    )
     
     # Dashboard Tab
-    with tabs[0]:
+    if st.session_state.active_tab == "📊 Dashboard":
         # Dashboard customization
         st.markdown("### Dashboard Layout")
         layout_col1, layout_col2 = st.columns([3, 1])
@@ -1396,7 +1561,7 @@ def show_dashboard():
             st.plotly_chart(fig, use_container_width=True)
 
     # Articles Tab
-    with tabs[1]:
+    elif st.session_state.active_tab == "📰 Articles":
         # Article Management Header
         header_col1, header_col2, header_col3 = st.columns([2, 1, 1])
         
@@ -1426,7 +1591,8 @@ def show_dashboard():
             'search_term': search_term if search_term else None,
             'limit': 200
         }
-        articles = load_articles(repository, article_filters)
+        article_dicts = load_articles(repository, article_filters)
+        articles = [Article.from_dict(article_dict) for article_dict in article_dicts]
         
         # Apply quality filter
         if 'quality_range' in locals():
@@ -1533,7 +1699,13 @@ def show_dashboard():
                     use_container_width=True,
                     help="Edit multiple articles at once"
                 ):
-                    show_bulk_edit_dialog(st.session_state.selected_articles, repository)
+                    st.session_state.dialog = {
+                        "name": "bulk_edit",
+                        "props": {
+                            "article_ids": st.session_state.get('selected_articles', [])
+                        }
+                    }
+                    st.rerun()
                 
                 # AI Enhancement
                 if st.button(
@@ -1543,7 +1715,14 @@ def show_dashboard():
                     help="Generate AI summaries and improve content"
                 ):
                     st.session_state.action = "Enhance"
-                    show_confirmation_dialog("Enhance with AI", selected_count)
+                    st.session_state.dialog = {
+                        "name": "confirm",
+                        "props": {
+                            "action_name": "Enhance with AI",
+                            "item_count": selected_count
+                        }
+                    }
+                    st.rerun()
                 
                 # Status Actions
                 st.markdown("**Update Status:**")
@@ -1556,7 +1735,14 @@ def show_dashboard():
                         use_container_width=True
                     ):
                         st.session_state.action = "Approve"
-                        show_confirmation_dialog("Approve", selected_count)
+                        st.session_state.dialog = {
+                            "name": "confirm",
+                            "props": {
+                                "action_name": "Approve",
+                                "item_count": selected_count
+                            }
+                        }
+                        st.rerun()
                 
                 with col2:
                     if st.button(
@@ -1565,7 +1751,14 @@ def show_dashboard():
                         use_container_width=True
                     ):
                         st.session_state.action = "Reject"
-                        show_confirmation_dialog("Reject", selected_count)
+                        st.session_state.dialog = {
+                            "name": "confirm",
+                            "props": {
+                                "action_name": "Reject",
+                                "item_count": selected_count
+                            }
+                        }
+                        st.rerun()
                 
                 # Publishing
                 st.markdown("---")
@@ -1579,7 +1772,14 @@ def show_dashboard():
                     st.session_state.action = "Publish"
                     # Store selected article IDs in session state
                     st.session_state.selected_articles = [article.id for article in articles if st.session_state.get(f"select_{article.id}", False)]
-                    show_confirmation_dialog("Publish", selected_count)
+                    st.session_state.dialog = {
+                        "name": "confirm",
+                        "props": {
+                            "action_name": "Publish",
+                            "item_count": selected_count
+                        }
+                    }
+                    st.rerun()
                 
                 # Reset
                 if st.button(
@@ -1591,33 +1791,53 @@ def show_dashboard():
                     st.session_state.action = "Reset"
                     # Store selected article IDs in session state
                     st.session_state.selected_articles = [article.id for article in articles if st.session_state.get(f"select_{article.id}", False)]
-                    show_confirmation_dialog("Reset", selected_count)
+                    st.session_state.dialog = {
+                        "name": "confirm",
+                        "props": {
+                            "action_name": "Reset",
+                            "item_count": selected_count
+                        }
+                    }
+                    st.rerun()
 
     # Handle confirmed actions
-    if 'confirmed' in st.session_state and st.session_state.confirmed:
-        print("Confirmed")
-        action = st.session_state.get('action')
-        selected_ids = st.session_state.get('selected_articles', [])
-        
-        if action == "Enhance":
-            enhance_articles_with_ai(selected_ids, repository, content_service)
-        elif action == "Approve":
-            update_article_status(selected_ids, ArticleStatus.APPROVED, repository)
-        elif action == "Publish":
-            print("Publishing")
-            publish_articles(selected_ids, repository, publisher)
-        elif action == "Reject":
-            update_article_status(selected_ids, ArticleStatus.REJECTED, repository)
-        elif action == "Reset":
-            update_article_status(selected_ids, ArticleStatus.PULLED, repository)
+    if 'confirmed' in st.session_state:
+        if st.session_state.confirmed:
+            action = st.session_state.get('action')
+            selected_ids = st.session_state.get('selected_articles', [])
+            
+            if action == "Enhance":
+                enhance_articles_with_ai(selected_ids, repository, content_service)
+            elif action == "Approve":
+                update_article_status(selected_ids, ArticleStatus.APPROVED, repository)
+            elif action == "Publish":
+                publish_articles(selected_ids, repository, publisher)
+            elif action == "Reject":
+                update_article_status(selected_ids, ArticleStatus.REJECTED, repository)
+            elif action == "Reset":
+                update_article_status(selected_ids, ArticleStatus.PULLED, repository)
             
         del st.session_state.confirmed
-        del st.session_state.action
+        if 'action' in st.session_state:
+            del st.session_state.action
         st.session_state.selected_articles = []
+        st.rerun()
+        
+    # Handle article AI summary update
+    if 'update_article_data' in st.session_state and st.session_state.update_article_data:
+        update_data = st.session_state.update_article_data
+        if 'ai_summary' in update_data:
+            if repository.update_article_ai_summary(update_data['id'], update_data['ai_summary']):
+                add_notification("Article AI summary updated successfully!", "success")
+            else:
+                add_notification("Failed to update article AI summary.", "error")
+        del st.session_state.update_article_data
+        st.cache_data.clear()
+        st.session_state.active_tab = "📰 Articles"
         st.rerun()
 
     # Analytics Tab
-    with tabs[2]:
+    if st.session_state.active_tab == "📈 Analytics":
         st.subheader("📈 Analytics & Insights")
         
         # Performance Metrics Row
@@ -1741,7 +1961,7 @@ def show_dashboard():
             st.info("📭 No recent activity to display. Try running some data pulls or performing bulk operations!")
 
     # Settings Tab
-    with tabs[tab_list.index("⚙️ Settings")]:
+    elif st.session_state.active_tab == "⚙️ Settings":
         st.subheader("⚙️ System Configuration")
         
         # User Preferences
@@ -1871,33 +2091,32 @@ Records: {stats.get('total_articles', 0)} articles
                 add_notification("Configuration saved successfully!", "success")
 
     # Debug Tab (if enabled)
-    if config.is_debug_mode_enabled() and "🐞 Debug" in tab_list:
-        with tabs[tab_list.index("🐞 Debug")]:
-            st.subheader("🐞 Debug Console")
-            
-            col1, col2 = st.columns([3, 1])
-            with col2:
-                if st.button("🗑️ Clear Log", use_container_width=True):
-                    ui_logger.clear()
-                    st.rerun()
-            
-            # Display logs with syntax highlighting
-            logs = ui_logger.get_logs()
-            if logs:
-                log_text = "\n".join(logs)
-                st.code(log_text, language="log")
-            else:
-                st.info("No debug logs yet.")
-            
-            # Debug session state
-            with st.expander("Session State Debug"):
-                st.json({
-                    'dark_mode': st.session_state.dark_mode,
-                    'selected_articles_count': len(st.session_state.get('selected_articles', [])),
-                    'notifications_count': len(st.session_state.notifications),
-                    'batch_queue_count': len(st.session_state.batch_queue),
-                    'user_preferences': st.session_state.user_preferences
-                })
+    if config.is_debug_mode_enabled() and st.session_state.active_tab == "🐞 Debug":
+        st.subheader("🐞 Debug Console")
+        
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("🗑️ Clear Log", use_container_width=True):
+                ui_logger.clear()
+                st.rerun()
+        
+        # Display logs with syntax highlighting
+        logs = ui_logger.get_logs()
+        if logs:
+            log_text = "\n".join(logs)
+            st.code(log_text, language="log")
+        else:
+            st.info("No debug logs yet.")
+        
+        # Debug session state
+        with st.expander("Session State Debug"):
+            st.json({
+                'dark_mode': st.session_state.dark_mode,
+                'selected_articles_count': len(st.session_state.get('selected_articles', [])),
+                'notifications_count': len(st.session_state.notifications),
+                'batch_queue_count': len(st.session_state.batch_queue),
+                'user_preferences': st.session_state.user_preferences
+            })
 
     # Enhanced Footer
     st.markdown("---")
@@ -1917,21 +2136,20 @@ Records: {stats.get('total_articles', 0)} articles
         unsafe_allow_html=True
     )
 
-def main():
+async def main():
     """Main function to run the Streamlit app"""
     # Initialize Firebase
     initialize_firebase()
     
-    # Create event loop for async operations
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    
+    system_components = init_system()
+    config = system_components['config']
+
     try:
         # Check authentication status
-        is_authenticated = loop.run_until_complete(check_auth_status())
+        is_authenticated = await check_auth_status()
         
         if not is_authenticated:
-            show_login_page()
+            await show_login_page()
         else:
             # Show logout button in sidebar
             if st.sidebar.button("Logout"):
@@ -1939,9 +2157,10 @@ def main():
                 st.rerun()
                 
             # Show main dashboard
-            show_dashboard()
-    finally:
-        loop.close()
+            show_dashboard(system_components)
+    except Exception as e:
+        st.error(f"An error occurred during application startup: {e}")
+        logger.error(traceback.format_exc())
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

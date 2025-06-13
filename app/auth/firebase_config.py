@@ -71,6 +71,10 @@ def get_auth():
         return None
     return firebase.auth()
 
+def get_api_key() -> Optional[str]:
+    """Get Firebase API key from environment variables"""
+    return os.getenv("FIREBASE_API_KEY")
+
 async def verify_token_with_backend(id_token: str) -> bool:
     """Verify the Firebase ID token with your backend"""
     try:
@@ -101,11 +105,27 @@ async def login_user(email: str, password: str) -> bool:
         auth = get_auth()
         if not auth:
             return False
+        
+        # Pass API key explicitly to avoid issues with some pyrebase versions
+        api_key = get_api_key()
+        if not api_key:
+            st.error("Firebase API Key is not configured.")
+            return False
             
-        user = auth.sign_in_with_email_and_password(email, password)
+        request_ref = f"https://www.googleapis.com/identitytoolkit/v3/relyingparty/verifyPassword?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        data = {"email": email, "password": password, "returnSecureToken": True}
+        
+        response = requests.post(request_ref, headers=headers, json=data)
+        response.raise_for_status()
+        user = response.json()
         
         # Get the ID token
-        id_token = user['idToken']
+        id_token = user.get('idToken')
+        if not id_token:
+            st.error("Failed to retrieve ID token after login.")
+            return False
+        
         # Verify the token with your backend
         if await verify_token_with_backend(id_token):
             st.session_state['user'] = user
@@ -127,10 +147,25 @@ async def signup_user(email: str, password: str) -> bool:
         if not auth:
             return False
             
-        user = auth.create_user_with_email_and_password(email, password)
+        # Pass API key explicitly to avoid issues with some pyrebase versions
+        api_key = get_api_key()
+        if not api_key:
+            st.error("Firebase API Key is not configured.")
+            return False
+
+        request_ref = f"https://www.googleapis.com/identitytoolkit/v3/relyingparty/signupNewUser?key={api_key}"
+        headers = {"Content-Type": "application/json"}
+        data = {"email": email, "password": password, "returnSecureToken": True}
+        
+        response = requests.post(request_ref, headers=headers, json=data)
+        response.raise_for_status()
+        user = response.json()
         
         # Get the ID token
-        id_token = user['idToken']
+        id_token = user.get('idToken')
+        if not id_token:
+            st.error("Failed to retrieve ID token after signup.")
+            return False
         
         # Verify the token with your backend
         if await verify_token_with_backend(id_token):

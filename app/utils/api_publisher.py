@@ -229,6 +229,7 @@ class APIPublisher:
                 'source': article.source,
                 'image_url': article.image_url if hasattr(article, 'image_url') else None,
                 'active': True,
+                'status': 'published',
                 'category': article.category.lower() if article.category else 'general',
                 'created_at': article.date.isoformat() if article.date else datetime.now().isoformat()
             }

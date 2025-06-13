@@ -31,40 +31,40 @@ scrapers:
   # Individual scraper configurations
   sources:
     inc42:
-      script_path: "inc42-news-pull.py"
-      csv_output: "inc42_news_detailed.csv"
+      script_path: "scripts/inc42-news-pull.py"
+      csv_output: "data/inc42_news_detailed.csv"
       source_name: "Inc42"
       enabled: true
       timeout: 300
       schedule: "0 */6 * * *"  # Every 6 hours
       
     entrackr:
-      script_path: "entrackr-news-pull.py"
-      csv_output: "entrackr_news_detailed.csv"
+      script_path: "scripts/entrackr-news-pull.py"
+      csv_output: "data/entrackr_news_detailed.csv"
       source_name: "Entrackr"
       enabled: true
       timeout: 300
       schedule: "15 */6 * * *"
       
     moneycontrol:
-      script_path: "mc-news-pull.py"
-      csv_output: "moneycontrol_news_detailed.csv"
+      script_path: "scripts/mc-news-pull.py"
+      csv_output: "data/moneycontrol_news_detailed.csv"
       source_name: "Moneycontrol"
       enabled: true
       timeout: 300
       schedule: "30 */6 * * *"
       
     startupnews:
-      script_path: "stnfyi-news-pull.py"
-      csv_output: "startupnews_fyi_detailed.csv"
+      script_path: "scripts/stnfyi-news-pull.py"
+      csv_output: "data/startupnews_fyi_detailed.csv"
       source_name: "StartupNews.fyi"
       enabled: true
       timeout: 300
       schedule: "45 */6 * * *"
       
     indianstartup:
-      script_path: "ins-news-pull.py"
-      csv_output: "funding_news_detailed.csv"
+      script_path: "scripts/ins-news-pull.py"
+      csv_output: "data/funding_news_detailed.csv"
       source_name: "IndianStartupNews"
       enabled: true
       timeout: 300
@@ -289,7 +289,7 @@ features:
   enable_content_moderation: true
   enable_analytics_dashboard: true
   enable_api_endpoints: false
-  enable_user_management: false
+  enable_user_management: true
 
 # Environment-specific overrides
 environments:
