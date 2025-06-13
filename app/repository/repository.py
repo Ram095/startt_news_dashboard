@@ -201,29 +201,50 @@ class ArticleRepository:
             logger.error(f"Error getting activity logs: {e}")
             return []
 
-    def _row_to_article(self, row: Dict) -> Article:
-        """Maps a database row (dict) to an Article object."""
-        return Article(
-            id=row.get('id'),
-            display_id=row.get('display_id'),
-            title=row.get('title'),
-            url=row.get('url'),
-            source=row.get('source'),
-            author=row.get('author'),
-            date=row.get('date'),
-            category=row.get('category'),
-            description=row.get('description'),
-            article_body=row.get('article_body'),
-            image_url=row.get('image_url'),
-            status=ArticleStatus(row.get('status', 'pulled')),
-            quality_score=row.get('quality_score'),
-            sentiment_score=row.get('sentiment_score'),
-            ai_tags=json.loads(row['ai_tags']) if isinstance(row.get('ai_tags'), str) else [],
-            ai_summary=row.get('ai_summary'),
-            content_hash=row.get('content_hash'),
-            created_at=datetime.fromisoformat(row['created_at']) if isinstance(row.get('created_at'), str) else datetime.now(),
-            published_at=datetime.fromisoformat(row['published_at']) if isinstance(row.get('published_at'), str) else None,
-        )
+    def _row_to_article(self, row: Dict[str, Any]) -> Article:
+        """Convert a database row to an Article object"""
+        try:
+            # Handle datetime parsing - only use date part
+            published_at = None
+            if row.get('published_at'):
+                try:
+                    # Just parse the date part (YYYY-MM-DD)
+                    date_str = row['published_at'].split()[0]  # Get just the date part
+                    published_at = datetime.strptime(date_str, '%Y-%m-%d')
+                except (ValueError, IndexError):
+                    logger.warning(f"Could not parse published_at date: {row['published_at']}")
+            
+            # Parse article date similarly
+            article_date = None
+            if row.get('date'):
+                try:
+                    date_str = row['date'].split()[0]  # Get just the date part
+                    article_date = datetime.strptime(date_str, '%Y-%m-%d')
+                except (ValueError, IndexError):
+                    logger.warning(f"Could not parse article date: {row['date']}")
+            
+            return Article(
+                id=row['id'],
+                title=row['title'],
+                url=row['url'],
+                source=row['source'],
+                author=row.get('author'),
+                date=article_date,
+                published_at=published_at,
+                article_body=row.get('article_body', ''),
+                description=row.get('description', ''),
+                category=row.get('category'),
+                status=ArticleStatus(row['status']) if row.get('status') else ArticleStatus.PENDING,
+                ai_summary=row.get('ai_summary'),
+                ai_tags=row.get('ai_tags', []),
+                quality_score=row.get('quality_score'),
+                sentiment_score=row.get('sentiment_score'),
+                image_url=row.get('image_url')
+            )
+        except Exception as e:
+            logger.error(f"Error converting row to article: {e}")
+            logger.error(f"Row data: {row}")
+            raise
 
     def add_article(self, article: Article) -> Optional[int]:
         """Adds a new article to the database."""
@@ -337,30 +358,6 @@ class ArticleRepository:
     def get_activity_logs(self, limit: int = 100) -> List[Dict[str, Any]]:
         query = "SELECT * FROM activity_logs ORDER BY timestamp DESC LIMIT ?"
         return self.db.execute_query(query, (limit,))
-
-    def _row_to_article(self, row: Dict[str, Any]) -> Article:
-        """Converts a dictionary row to an Article object."""
-        return Article(
-            id=row.get('id'),
-            display_id=row.get('display_id'),
-            title=row.get('title'),
-            url=row.get('url'),
-            source=row.get('source'),
-            author=row.get('author'),
-            date=datetime.strptime(row['date'], '%Y-%m-%d %H:%M:%S') if row.get('date') else None,
-            category=row.get('category'),
-            description=row.get('description'),
-            article_body=row.get('article_body'),
-            image_url=row.get('image_url'),
-            status=ArticleStatus(row['status']) if row.get('status') else ArticleStatus.PULLED,
-            content_hash=row.get('content_hash'),
-            quality_score=row.get('quality_score', 0),
-            ai_tags=json.loads(row['ai_tags']) if isinstance(row.get('ai_tags'), str) else [],
-            ai_summary=row.get('ai_summary'),
-            sentiment_score=row.get('sentiment_score', 0.0),
-            created_at=datetime.strptime(row['created_at'], '%Y-%m-%d %H:%M:%S.%f') if '.' in row.get('created_at', '') else datetime.strptime(row['created_at'], '%Y-%m-%d %H:%M:%S') if row.get('created_at') else datetime.now(),
-            published_at=datetime.strptime(row['published_at'], '%Y-%m-%d %H:%M:%S') if row.get('published_at') else None
-        )
 
     def clear_all_articles(self) -> bool:
         """Deletes all articles from the articles table."""
